@@ -1,4 +1,10 @@
-def score(database, semester, answer_key, savedname):
+from factor_analyzer import FactorAnalyzer, Rotator, calculate_bartlett_sphericity, calculate_kmo
+from sklearn.utils import check_array
+from matplotlib import pyplot as plt
+import pandas as pd
+import numpy as np
+
+def score(database, semester, year, season, answer_key, savedname):
     '''
     Modified so that it uses numerical values of question/answer rather than string values.
     By:
@@ -29,56 +35,66 @@ def score(database, semester, answer_key, savedname):
             add columns for confidence means and totals by category
             add extra colums after insert so the deletion of columns will not be necessary
     '''
-    import pandas as pd
-    from collections import defaultdict
-    import numpy as np
 
     question = semester + "_Q" # question = 'PRE_Q' or 'PST_Q'
 
     data = pd.read_csv(database, encoding = 'utf-8', skiprows = [1,2], header = 0)
     df = pd.read_csv(answer_key, encoding = 'utf-8')
 
-    # print(data.columns)
-
-    # Only includes finished exams
-    data = data.loc[data['Finished']==1]
-
-    data.to_csv(savedname+"_scored.csv", encoding='utf-8',index=False)
-    data = pd.read_csv(savedname+"_scored.csv", encoding = 'utf-8')
 
     cols = list(data.columns.values)
     c = len(cols)
     e = 0
     h = len(data)
 
-    #adds the Q#_SCORE column right next to each question
+    # Adds the Q#_SCORE column right next to each question
     questions = np.unique(df['Question #'])
 
     for item in questions:
         if(question+str(item) in data.columns):
             data.insert(data.columns.get_loc(question+str(item))+1,question+str(item)+'_SCORE', 0)
 
-    # counter to determine version of assessment. e >= 50 --> Full, e < 50 --> Lite
+    # e >= 50 --> Full, e < 50 --> Lite
     for d in range(c):
         column = cols[d]
-        #print(column)
         column = column[0:5]
-        #print(column)
+
         if question == column:
             e = e + 1
 
-    data.insert(6 , 'Version', " ")
+    data.insert(6 , 'VERSION', " ")
 
     if e == 50:
-        data['Version'] = "Fl_1.0"
+        if(year == "16" and season == "Fa"):
+            data['VERSION'] = "Fl_2.0"
+            # If the value "progress bar" is in comments, change the version to 2.1
+            for v in range(h):
+                if 'COMMENTS' in data.columns:
+                    if (data.loc[v, 'COMMENTS'] == "progress bar"):
+                        data.loc[v, 'VERSION'] = "Fl_2.1"
+        else:
+            data['VERSION'] = "Fl_1.1"
+    elif e == 54:
+        data['VERSION'] = "Fl_1.0"
+        data = data.drop([semester + '_Q18'], axis=1)
+        data = data.drop([semester + '_Q18CF'], axis=1)
+        data = data.drop([semester + '_Q25'], axis=1)
+        data = data.drop([semester + '_Q25CF'], axis=1)
+        e = 50
     elif e == 22:
-        data['Version'] = "Lt_1.0"
+        data['VERSION'] = "Lt_1.0"
     elif e == 30:
-        data['Version'] = "Lt_2.0"
-    #print(data['Version'])
+        intyr = int(year)
+        if (intyr >= 19 or (year == "18" and season == "Fa")):
+            data['VERSION'] = "Lt_2.1"
+        else:
+            data['VERSION'] = "Lt_2.0"
+    elif e == 28:
+        data['VERSION'] = "SM_1.0"
 
-    # new columns for the totals
+    # New columns for the totals
     data[semester + '_TOTAL'] = np.nan
+    data[semester + '_PCT_TOTAL'] = np.nan
     data[semester + '_GR_TOTAL'] = np.nan
     data[semester + '_GR_MEAN'] = np.nan
     data[semester + '_AR_TOTAL'] = np.nan
@@ -93,20 +109,25 @@ def score(database, semester, answer_key, savedname):
     data[semester + '_TR_MEAN'] = np.nan
     data[semester + '_AV_TOTAL'] = np.nan
     data[semester + '_AV_MEAN'] = np.nan
-    data[semester + '_ER_MEAN'] = np.nan
+    #data[semester + '_ER_MEAN'] = np.nan
     data[semester + '_UD_TOTAL'] = np.nan
     data[semester + '_UD_MEAN'] = np.nan
     data[semester + '_ES_TOTAL'] = np.nan
     data[semester + '_ES_MEAN'] = np.nan
 
+    # Composite Variables
+    data[semester + '_SELFEFF'] = np.nan
+    data[semester + '_MATHANX'] = np.nan
+    data[semester + '_MATHREL'] = np.nan
+    data[semester + '_ACADMAT'] = np.nan
+    data[semester + '_SCHMATH'] = np.nan
 
     corr_ans = {15: 0, 12:0, 14:0, 26:0, 27:0, 23:0, 28:0, 19:0, 3:0, 16:0, 13:0, 31:0,
                           32:0, 29:0, 30:0, 5:0, 6:0, 7:0, 10:0, 11:0, 20:0, 21:0, 33:0, 34:0, 35:0}
     for item in corr_ans:
         corr_ans[item] = int(list(df.loc[df['Question #']==item]['Correct Answer'])[0])
 
-    # adds totals and means to total and means columns
-    print("Adding totals and means...")
+    # Adds totals and means to total and means columns
     for nn in range(h):
         qn = {15: 0, 12:0, 14:0, 26:0, 27:0, 23:0, 28:0, 19:0, 3:0, 16:0, 13:0, 31:0, 32:0, 29:0, 30:0, 5:0, 6:0, 7:0, 10:0, 11:0, 20:0, 21:0, 33:0, 34:0, 35:0}
 
@@ -144,8 +165,8 @@ def score(database, semester, answer_key, savedname):
         for q_num in qn:
                 total_full += qn[q_num]
         if e == 50:
-
             data.loc[nn, semester + '_TOTAL'] = total_full
+            data.loc[nn, semester + '_PCT_TOTAL'] = total_full/(25)
             data.loc[nn, semester + '_GR_MEAN'] = GR/6
             data.loc[nn, semester + '_AR_MEAN'] = AR/23
             data.loc[nn, semester + '_PR_MEAN'] = PR/15
@@ -155,83 +176,171 @@ def score(database, semester, answer_key, savedname):
             data.loc[nn, semester + '_AV_MEAN'] = AV/5
             data.loc[nn, semester + '_UD_MEAN'] = UD/5
             data.loc[nn, semester + '_ES_MEAN'] = ES/5
+
         elif e == 22:
             data.loc[nn, semester + '_TOTAL'] = total_full
+            data.loc[nn, semester + '_PCT_TOTAL'] = total_full/(11)
             data.loc[nn, semester + '_GR_MEAN'] = GR/4
             data.loc[nn, semester + '_AR_MEAN'] = AR/9
             data.loc[nn, semester + '_PR_MEAN'] = PR/8
-            data.loc[nn, semester + '_PC_MEAN'] = PC/2
             data.loc[nn, semester + '_SP_MEAN'] = SP/3
             data.loc[nn, semester + '_TR_MEAN'] = TR/3
-            data.loc[nn, semester + '_AV_MEAN'] = AV/1
-            data.loc[nn, semester + '_UD_MEAN'] = UD/1
             data.loc[nn, semester + '_ES_MEAN'] = ES/5
+
+        #lacks number of questions for meaningful subscore
+            #1 q
+            data.loc[nn, semester + '_UD_MEAN'] = np.nan
+            data.loc[nn, semester + '_UD_TOTAL'] = np.nan
+            #2 qs
+            data.loc[nn, semester + '_PC_MEAN'] = np.nan
+            data.loc[nn, semester + '_PC_TOTAL'] = np.nan
+            #1 q
+            data.loc[nn, semester + '_AV_MEAN'] = np.nan
+            data.loc[nn, semester + '_AV_TOTAL'] = np.nan
+
         elif e == 30:
             data.loc[nn, semester + '_TOTAL'] = total_full
+            data.loc[nn, semester + '_PCT_TOTAL'] = total_full/(15)
             data.loc[nn, semester + '_GR_MEAN'] = GR/4
             data.loc[nn, semester + '_AR_MEAN'] = AR/13
             data.loc[nn, semester + '_PR_MEAN'] = PR/11
-            data.loc[nn, semester + '_PC_MEAN'] = PC/2
             data.loc[nn, semester + '_SP_MEAN'] = SP/3
             data.loc[nn, semester + '_TR_MEAN'] = TR/3
             data.loc[nn, semester + '_AV_MEAN'] = AV/4
-            data.loc[nn, semester + '_UD_MEAN'] = UD/1
             data.loc[nn, semester + '_ES_MEAN'] = ES/5
+        #lacks number of questions for meaningful subscore
+            #1 q
+            data.loc[nn, semester + '_UD_MEAN'] = np.nan
+            data.loc[nn, semester + '_UD_TOTAL'] = np.nan
+            #2 qs
+            data.loc[nn, semester + '_PC_MEAN'] = np.nan
+            data.loc[nn, semester + '_PC_TOTAL'] = np.nan
+
+        elif e == 28:
+            data.loc[nn, semester + '_TOTAL'] = total_full
+            data.loc[nn, semester + '_PCT_TOTAL'] = total_full/(14)
+            data.loc[nn, semester + '_GR_MEAN'] = GR/4
+            data.loc[nn, semester + '_AR_MEAN'] = AR/13
+            data.loc[nn, semester + '_PR_MEAN'] = PR/9
+            data.loc[nn, semester + '_PC_MEAN'] = PC/3
+            data.loc[nn, semester + '_SP_MEAN'] = SP/7
+            data.loc[nn, semester + '_UD_MEAN'] = UD/5
+            data.loc[nn, semester + '_ES_MEAN'] = ES/3
+
+        #lacks number of questions for meaningful subscore
+            #2 q
+            data.loc[nn, semester + '_TR_MEAN'] = np.nan
+            data.loc[nn, semester + '_TR_TOTAL'] = np.nan
+            #1 q
+            data.loc[nn, semester + '_AV_MEAN'] = np.nan
+            data.loc[nn, semester + '_AV_TOTAL'] = np.nan
 
 
-
-    data[semester+'_ASSESSMENT_TYPE'] = np.nan
-
-    # marks whether assessment is lite or full
-    for o in range(h):
-        data.loc[o,semester+'_ASSESSMENT_TYPE'] = 'Medium'
 
     data[semester  + '_CF_TOTAL'] = np.nan
+    data[semester  + '_CF_TOTAL_CORR'] = np.nan
+    data[semester  + '_CF_TOTAL_INCORR'] = np.nan
     data[semester + '_CF_MEAN'] = np.nan
+    data[semester + '_CF_MEAN_CORR'] = np.nan
+    data[semester + '_CF_MEAN_INCORR'] = np.nan
 
 
-    # calculates confidence totals and means; adds to respective columns
-    print("Calculating confidence totals and means...")
+    # Calculates confidence totals and means; adds to respective columns
     for u in range(h):
-        qcf = {'15CF': 0, '12CF':0, '14CF':0, '26CF':0, '27CF':0, '23CF':0, '28CF':0, '19CF':0, '3CF':0, '16CF':0, '13CF':0, '31CF':0, '32CF':0, '29CF':0, '30CF':0, '5CF':0, '6CF':0, '7CF':0, '10CF':0, '11CF':0,'20CF':0, '21CF':0, '33CF':0, '34CF':0, '35CF':0}
+        qcf = {'15': 0, '12':0, '14':0, '26':0, '27':0, '23':0, '28':0, '19':0, '3':0, '16':0, '13':0, '31':0, '32':0, '29':0, '30':0, '5':0, '6':0, '7':0, '10':0, '11':0,'20':0, '21':0, '33':0, '34':0, '35':0}
+        qc = {'15': 0, '12':0, '14':0, '26':0, '27':0, '23':0, '28':0, '19':0, '3':0, '16':0, '13':0, '31':0, '32':0, '29':0, '30':0, '5':0, '6':0, '7':0, '10':0, '11':0,'20':0, '21':0, '33':0, '34':0, '35':0}
 
         for q_num in qcf:
             try:
-                qcf[q_num] = int(data.loc[u, question + str(q_num)])
+                qcf[q_num] = int(data.loc[u, question + str(q_num) + "CF"])
+
+                qc[q_num] = int(data.loc[u, question + str(q_num) + '_SCORE'])
             except:
                 pass
 
         medscore = 0
+        corrscore = 0
+        incorrscore = 0
+        confcount = 0
         for item in qcf:
             medscore += qcf[item]
 
+            if qcf[item] > 0:
+                confcount +=1
+
+                if qc[item] == 1:
+                    corrscore += qcf[item]
+                else:
+                    incorrscore += qcf[item]
+        #print(confcount)
+        if (confcount == 0):
+            confcount = 1
+        # Student's score
+        numcorr = data.loc[u, semester + '_TOTAL']
+
+        # Calculate confidence scores
         if e == 30:
-            data.loc[u, semester  + '_CF_TOTAL'] = medscore
-            data.loc[u, semester + '_CF_MEAN'] = medscore/15
+            data.loc[u, semester + '_CF_TOTAL'] = medscore
+            data.loc[u, semester + '_CF_TOTAL_CORR'] = corrscore
+            data.loc[u, semester + '_CF_TOTAL_INCORR'] = incorrscore
+            data.loc[u, semester + '_CF_MEAN'] = medscore/confcount
+
+            if numcorr != 0:
+                data.loc[u, semester + '_CF_MEAN_CORR'] = corrscore/numcorr
+            else:
+                data.loc[u, semester + '_CF_MEAN_CORR'] = 0
+            if numcorr != confcount:
+                data.loc[u, semester + '_CF_MEAN_INCORR'] = incorrscore/(confcount-numcorr)
+            else:
+                data.loc[u, semester + '_CF_MEAN_INCORR'] = 0
+
         elif e == 22:
-            data.loc[u, semester  + '_CF_TOTAL'] = medscore
-            data.loc[u, semester + '_CF_MEAN'] = medscore/11
+            data.loc[u, semester + '_CF_TOTAL'] = medscore
+            data.loc[u, semester + '_CF_TOTAL_CORR'] = np.nan
+            data.loc[u, semester + '_CF_TOTAL_INCORR'] = incorrscore
+            data.loc[u, semester + '_CF_MEAN'] = medscore/confcount
+            if numcorr != 0:
+                data.loc[u, semester + '_CF_MEAN_CORR'] = corrscore/numcorr
+            else:
+                data.loc[u, semester + '_CF_MEAN_CORR'] = 0
+            if numcorr != confcount:
+                data.loc[u, semester + '_CF_MEAN_INCORR'] = incorrscore/(confcount-numcorr)
+            else:
+                data.loc[u, semester + '_CF_MEAN_INCORR'] = 0
+        elif e == 28:
+            data.loc[u, semester + '_CF_TOTAL'] = medscore
+            data.loc[u, semester + '_CF_TOTAL_CORR'] = np.nan
+            data.loc[u, semester + '_CF_TOTAL_INCORR'] = incorrscore
+            data.loc[u, semester + '_CF_MEAN'] = medscore/confcount
+            if numcorr != 0:
+                data.loc[u, semester + '_CF_MEAN_CORR'] = corrscore/numcorr
+            else:
+                data.loc[u, semester + '_CF_MEAN_CORR'] = 0
+            if numcorr != confcount:
+                data.loc[u, semester + '_CF_MEAN_INCORR'] = incorrscore/(confcount-numcorr)
+            else:
+                data.loc[u, semester + '_CF_MEAN_INCORR'] = 0
 
         elif e == 50:
+            data.loc[u, semester + '_CF_TOTAL'] = medscore
+            data.loc[u, semester + '_CF_TOTAL_CORR'] = corrscore
+            data.loc[u, semester + '_CF_TOTAL_INCORR'] = incorrscore
+            data.loc[u, semester + '_CF_MEAN'] = medscore/confcount
 
-            for q_num in qcf:
-                try:
-                    qcf[q_num] = int(data.loc[u, question + str(q_num)])
-                except:
-                    pass
-
-            fullscore = 0
-            for item in qcf:
-                fullscore += qcf[item]
-
-            data.loc[u, semester  + '_CF_TOTAL'] = fullscore
-            data.loc[u, semester + '_CF_MEAN'] = fullscore/25
+            if numcorr != 0:
+                data.loc[u, semester + '_CF_MEAN_CORR'] = corrscore/numcorr
+            else:
+                data.loc[u, semester + '_CF_MEAN_CORR'] = 0
+            if numcorr != confcount:
+                data.loc[u, semester + '_CF_MEAN_INCORR'] = incorrscore/(confcount-numcorr)
+            else:
+                data.loc[u, semester + '_CF_MEAN_INCORR'] = 0
 
     data[semester + '_QCOMPLETE'] = 0
     data[semester + '_COMPFLAG'] = 0
+    data[semester +'_EFFFLAG'] = 0
 
-    # counts number of completed columns
-    print("Counting completed columns...")
+    # Counts number of completed columns
     try:
         if e == 50:
             q = [15, 12, 14, 26, 27, 23, 28, 19, 3, 16, 13, 31, 32, 29, 30, 5, 6, 7, 10, 11, 20, 21, 33, 34, 35]
@@ -239,6 +348,8 @@ def score(database, semester, answer_key, savedname):
             q = [15, 12, 13, 14, 26, 27, 23, 28, 19, 3, 16]
         elif e == 30:
             q = [15, 12, 13, 14, 26, 27, 23, 28, 19, 3, 16, 10, 11, 33, 34]
+        elif e == 28:
+            q = [6, 7, 13, 14, 16, 20, 21, 23, 27, 28, 29, 30, 31, 35]
 
         for v in range(h):
             # Count up totals
@@ -263,11 +374,9 @@ def score(database, semester, answer_key, savedname):
         KeyError
 
     # Calculating effort column
-    print("Calculating effort...")
-    data[semester +'_EFFFLAG'] = 0
 
     for v in range(h):
-        # If there is no effort, mark completion as 0 for that student!
+        # If there is no response for effort, mark completion as 0 for that student!
         if (pd.isnull(data.loc[v, semester + '_EFFORT'])):
             data.loc[v, semester + '_COMPFLAG'] = 0
 
@@ -283,14 +392,131 @@ def score(database, semester, answer_key, savedname):
         elif data.loc[v, semester + '_EFFORT'] == 2 or data.loc[v, semester + '_EFFORT'] == 1:
             data.loc[v, semester +'_EFFFLAG'] = 0
 
+    # Factor Analysis!
+    if (semester == "PRE" and e == 30) or (semester == "PRE" and e == 22) or (semester == "PRE" and e == 28):
+        # Fill out whymajs with 0 instead of NaN values so we can
+        # perform FA on them
+        nan_columns = [semester + "_WHYMAJ_1", semester + "_WHYMAJ_2", semester + "_WHYMAJ_3",
+            semester + "_WHYMAJ_4", semester + "_WHYMAJ_5", semester + "_WHYMAJ_6",
+            semester + "_WHYMAJ_7", semester + "_WHYMAJ_8", semester + "_WHYCS_1",
+            semester + "_WHYCS_2", semester + "_WHYCS_3", semester + "_WHYCS_4",
+            semester + "_WHYCS_5", semester + "_WHYCS_6", semester + "_WHYCS_7"
+        ]
+        for i in data.index:
+            for column in nan_columns:
+                if pd.isna(data.at[i, column]):
+                    data.at[i, column] = 0
 
-    # Only keep complete entries
-    data = data.loc[ data[semester + '_COMPFLAG']==1 ]
+        # Factor Analysis variables
+        att = [semester + '_FREQEN', semester + '_DAILYM', semester + '_DAILYG',
+            semester + '_ATT_DL_3', semester + '_ATT_SC_1', semester + '_ATT_SC_2',
+            semester + '_ATT_SC_4', semester + '_ATT_SC_5', semester + '_LK1',
+            semester + '_LK2', semester + '_LK5', semester + '_ANX#1_1',
+            semester + '_ANX#1_2', semester + '_ANX#1_3', semester + '_ANX#1_4',
+            semester + '_CF_TOTAL', semester + '_ATT_DL_2', semester + '_ATT_SC_3',
+            semester + "_WHYCS_1", semester + "_WHYCS_3", semester + "_WHYCS_5",
+            semester + "_WHYCS_6", semester + "_EFFORT"
+        ]
 
-    data.to_csv(savedname+"_scored.csv", encoding='utf-8',index=False)
+        # Variable selection
+        att_data = data.loc[ data[semester + '_COMPFLAG']==1 ]
+        att_data = att_data[att]
+        # Drop all rows with NaN values
+        att_data.dropna(inplace=True)
 
-    print("Results saved to " + savedname + "_scored.csv")
+        swapList = ['_ATT_DL_2', '_ATT_DL_3', '_ATT_SC_1', '_ATT_SC_2',
+            '_ATT_SC_3', '_ATT_SC_4', '_ATT_SC_5'
+        ]
+        for i in att_data.index:
+            for col in swapList:
+                swapOrdering(att_data, i, semester + col)
 
-# Driver Code
-if __name__ == '__main__':
-    score("QuaRCS_Lt2_Pre.csv", "PRE",  "answ.csv","QuaRCS_Lt2_Pre")
+        # KMO and Barlett tests
+        X = att_data.copy().values
+        X = check_array(X, force_all_finite='allow-nan')
+
+        statistic, p_value = calculate_bartlett_sphericity(X)
+        print("\nBarlett sphericity p={0}".format(p_value))
+        kmo_per_variable, kmo_total = calculate_kmo(X)
+        print("Kaiser-Meyer-Olkin measure of sampling adequacy = {0}\n".format(kmo_total))
+
+        # Create factor analysis object and perform factor analysis
+        # Using maximum likelihood analysis (ml)
+        n_factors = 5
+        fa = FactorAnalyzer(rotation=None, n_factors=n_factors, method="ml")
+        fa.fit(att_data)
+
+        # Kaiser normalization and oblimin rotation
+        rotator = Rotator(method="oblimin", normalize=True, max_iter=25)
+        loadings = rotator.fit_transform(fa.loadings_)
+
+        # Set FA loadings to be rotator loadings
+        fa.loadings_ = loadings
+
+        # Get factor scores
+        factor_scores = fa.transform(att_data)
+        factor_scores = pd.DataFrame(data=factor_scores, index=att_data.index, columns=["Factor "+str(i+1) for i in range(n_factors)])
+        # print("\nFactor scores: \n", factor_scores)
+
+        factor_names = ["Numerical Self Efficacy", "School Math",
+            "Academic maturity", "Numerical Relevancy", "Math Anxiety"]
+        # Convert factor loadings to a df
+        loadings = pd.DataFrame(data=loadings, index=att, columns=factor_names)
+
+        # Drop non-meaningful values
+        loadings = loadings.where(abs(loadings) > 0.32)
+        print("Factor loadings: \n", loadings)
+
+        scores1 = factor_scores['Factor 1'].tolist()
+        plt.hist(scores1, bins=[x for x in np.arange(-4.0, 4.0, 0.2)])
+        plt.title("Numerical Self Efficacy")
+        # plt.show()
+
+        scores2 = factor_scores['Factor 2'].tolist()
+        plt.hist(scores2, bins=[x for x in np.arange(-4.0, 4.0, 0.2)])
+        plt.title("School Math")
+        # plt.show()
+
+        scores3 = factor_scores['Factor 3'].tolist()
+        plt.hist(scores3, bins=[x for x in np.arange(-4.0, 4.0, 0.2)])
+        plt.title("Academic maturity")
+        # plt.show()
+
+        scores4 = factor_scores['Factor 4'].tolist()
+        plt.hist(scores4, bins=[x for x in np.arange(-4.0, 4.0, 0.2)])
+        plt.title("Numerical Relevancy")
+        # plt.show()
+
+        scores5 = factor_scores['Factor 5'].tolist()
+        plt.hist(scores5, bins=[x for x in np.arange(-4.0, 4.0, 0.2)])
+        plt.title("Math Anxiety")
+        # plt.show()
+
+        # Update composite variables
+        for i in factor_scores.index:
+            data.at[i, semester + '_SELFEFF'] = factor_scores.at[i, 'Factor 1']
+            data.at[i, semester + '_SCHMATH'] = factor_scores.at[i, 'Factor 2']
+            data.at[i, semester + '_ACADMAT'] = factor_scores.at[i, 'Factor 3']
+            data.at[i, semester + '_MATHREL'] = factor_scores.at[i, 'Factor 4']
+            data.at[i, semester + '_MATHANX'] = factor_scores.at[i, 'Factor 5']
+
+    #data.to_csv(semester+"_scored.csv", encoding='utf-8',index=False)
+
+    #print("Results saved to " + savedname + "_scored.csv")
+
+    return data
+
+def swapOrdering(db, index, colname):
+    '''
+    Swaps ordering of columns so that they're ordered negative -> positive
+    Used in Factor Analysis
+    '''
+    check = int(db.at[index, colname])
+    if check == 4:
+        db.at[index, colname] = 1
+    elif check == 3:
+        db.at[index, colname] = 2
+    elif check == 2:
+        db.at[index, colname] = 3
+    elif check == 1:
+        db.at[index, colname] = 4
